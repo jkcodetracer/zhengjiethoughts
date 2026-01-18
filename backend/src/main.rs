@@ -1,4 +1,4 @@
-use std::{net::SocketAddr, time::Duration};
+use std::{net::SocketAddr, sync::Arc, time::Duration};
 
 use anyhow::Context;
 use axum::{
@@ -11,6 +11,9 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, Row, postgres::PgPoolOptions};
 use time::OffsetDateTime;
+use tower_governor::{
+    GovernorLayer, governor::GovernorConfigBuilder, key_extractor::PeerIpKeyExtractor,
+};
 use tower_http::{
     cors::{AllowOrigin, Any, CorsLayer},
     trace::TraceLayer,
@@ -73,9 +76,43 @@ async fn main() -> anyhow::Result<()> {
 
     let cors_layer = build_cors_layer(&state.cors_allowed_origins);
 
+    let rate_limit_enabled = std::env::var("RATE_LIMIT_ENABLED")
+        .ok()
+        .map(|v| v != "0" && !v.eq_ignore_ascii_case("false"))
+        .unwrap_or(true);
+
+    let governor_layer = if rate_limit_enabled {
+        let config = GovernorConfigBuilder::default()
+            // In local dev, this uses the TCP peer address (via ConnectInfo).
+            // In prod behind proxies, you can switch to a header-based extractor.
+            .key_extractor(PeerIpKeyExtractor)
+            .per_second(2)
+            .burst_size(5)
+            .finish()
+            .expect("valid governor config");
+
+        Some(GovernorLayer {
+            config: Arc::new(config),
+        })
+    } else {
+        None
+    };
+
+    let comments_get = Router::new().route("/api/comments", get(list_comments));
+
+    let comments_post = {
+        let r = Router::new().route("/api/comments", post(create_comment));
+        if let Some(layer) = governor_layer {
+            r.layer(layer)
+        } else {
+            r
+        }
+    };
+
     let app = Router::new()
+        .merge(comments_get)
+        .merge(comments_post)
         .route("/healthz", get(healthz))
-        .route("/api/comments", get(list_comments).post(create_comment))
         .route("/api/admin/login", post(admin_login))
         .route("/api/admin/comments", get(admin_list_comments))
         .route("/api/admin/comments/:id/hide", post(admin_hide_comment))
@@ -97,10 +134,13 @@ async fn main() -> anyhow::Result<()> {
         .await
         .context("bind listener")?;
 
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal())
-        .await
-        .context("serve")?;
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown_signal())
+    .await
+    .context("serve")?;
 
     Ok(())
 }
