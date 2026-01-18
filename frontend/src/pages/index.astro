@@ -1,0 +1,60 @@
+---
+import Layout from '../layouts/Layout.astro';
+import { getCollection } from 'astro:content';
+
+const posts = (await getCollection('blog', ({ data }) => !data.draft))
+  .sort((a, b) => b.data.publishedAt.getTime() - a.data.publishedAt.getTime());
+---
+
+<Layout title="Zhengjie Thoughts" description="Notes on computer science, engineering, and networks.">
+	<main class="page">
+		<header class="hero">
+			<p class="kicker">Zhengjie Thoughts</p>
+			<h1>Writing about systems, engineering, and networks.</h1>
+			<p class="lede">
+				Short, practical notes. Minimal noise. Mostly text.
+			</p>
+		</header>
+
+		<section class="list" aria-label="Posts">
+			{posts.map((post) => (
+				<article class="item">
+					<a class="title" href={`/blog/${post.slug}/`}>{post.data.title}</a>
+					<p class="meta">
+						<time datetime={post.data.publishedAt.toISOString()}>
+							{post.data.publishedAt.toLocaleDateString('en-AU', {
+								year: 'numeric',
+								month: 'short',
+								day: '2-digit',
+							})}
+						</time>
+						{post.data.tags?.length ? (
+							<span class="tags">{post.data.tags.join(' / ')}</span>
+						) : null}
+					</p>
+					{post.data.description ? <p class="desc">{post.data.description}</p> : null}
+				</article>
+			))}
+		</section>
+	</main>
+</Layout>
+
+<style>
+	.page { padding: 4.5rem 1.25rem 4rem; }
+	.hero { max-width: var(--content); margin: 0 auto 2.75rem; }
+	.kicker { letter-spacing: 0.12em; text-transform: uppercase; font-size: 0.78rem; color: var(--muted); margin: 0 0 0.5rem; }
+	.hero h1 { font-size: clamp(2rem, 4vw, 3.1rem); line-height: 1.05; margin: 0 0 0.9rem; }
+	.lede { color: var(--muted); max-width: 55ch; font-size: 1.05rem; margin: 0; }
+	.list { max-width: var(--content); margin: 0 auto; display: grid; gap: 1.35rem; }
+	.item { padding: 0.9rem 0; border-top: 1px solid var(--border); }
+	.item:first-child { border-top: 1px solid var(--border); }
+	.title { display: inline-block; font-size: 1.25rem; font-weight: 650; text-decoration: none; color: var(--ink); }
+	.title:hover { text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 3px; }
+	.meta { display: flex; gap: 0.8rem; flex-wrap: wrap; color: var(--muted); font-size: 0.9rem; margin: 0.35rem 0 0.5rem; }
+	.tags { opacity: 0.9; }
+	.desc { margin: 0; color: var(--muted); max-width: 80ch; }
+	@media (max-width: 560px) {
+		.page { padding-top: 3.5rem; }
+		.hero h1 { line-height: 1.1; }
+	}
+</style>

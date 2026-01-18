@@ -1,0 +1,73 @@
+name: backend-ci
+
+on:
+  pull_request:
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend-ci.yml"
+  push:
+    branches: ["main"]
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend-ci.yml"
+
+concurrency:
+  group: backend-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: zhengjiethoughts
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres" --health-interval=10s --health-timeout=5s --health-retries=5
+
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/zhengjiethoughts
+      ADMIN_USERNAME: zhengjie
+      # This is only for CI to let the binary start if needed.
+      ADMIN_PASSWORD_HASH: $argon2id$v=19$m=4096,t=3,p=1$c29tZXNhbHQ$7S7Tz9GvUpfGmXyYhQMW4e8kH7u7lWl9HBdWq9fCF0w
+      JWT_SECRET: ci-only-jwt-secret
+      CORS_ALLOWED_ORIGINS: http://localhost:4321
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "backend -> target"
+
+      - name: Format
+        working-directory: backend
+        run: cargo fmt --check
+
+      - name: Clippy
+        working-directory: backend
+        run: cargo clippy -- -D warnings
+
+      - name: Tests
+        working-directory: backend
+        run: cargo test
+
+      - name: Build
+        working-directory: backend
+        run: cargo build --release

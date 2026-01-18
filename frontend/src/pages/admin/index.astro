@@ -1,0 +1,248 @@
+---
+import Layout from '../../layouts/Layout.astro';
+const apiBase = import.meta.env.PUBLIC_API_BASE_URL;
+---
+
+<Layout title="Admin" description="Comment moderation tools.">
+  <main class="admin">
+    <header class="head">
+      <a class="home" href="/">Home</a>
+      <h1>Admin</h1>
+      <p class="hint">
+        This page is static. Authentication happens via the backend. Token is stored in your browser.
+      </p>
+    </header>
+
+    <section class="card">
+      <h2>Login</h2>
+      <form id="login-form" class="form">
+        <div class="row">
+          <label>
+            <span>Username</span>
+            <input name="username" required />
+          </label>
+          <label>
+            <span>Password</span>
+            <input name="password" type="password" required />
+          </label>
+        </div>
+        <div class="actions">
+          <button type="submit">Login</button>
+          <p id="login-status" class="status" role="status"></p>
+        </div>
+      </form>
+    </section>
+
+    <section class="card">
+      <h2>Manage Comments</h2>
+      <form id="slug-form" class="form">
+        <label>
+          <span>Post slug</span>
+          <input name="slug" placeholder="e.g. hello-world" required />
+        </label>
+        <div class="actions">
+          <button type="submit">Load</button>
+          <button type="button" id="logout">Logout</button>
+          <p id="admin-status" class="status" role="status"></p>
+        </div>
+      </form>
+
+      <div id="admin-list" class="list"></div>
+    </section>
+  </main>
+</Layout>
+
+<script define:vars={{ apiBase }}>
+  const TOKEN_KEY = 'zjt_admin_token';
+
+  const $loginForm = document.getElementById('login-form');
+  const $loginStatus = document.getElementById('login-status');
+  const $slugForm = document.getElementById('slug-form');
+  const $adminStatus = document.getElementById('admin-status');
+  const $list = document.getElementById('admin-list');
+  const $logout = document.getElementById('logout');
+
+  function token() {
+    return localStorage.getItem(TOKEN_KEY) || '';
+  }
+
+  function setStatus(el, msg) {
+    if (!el) return;
+    el.textContent = msg;
+  }
+
+  function esc(s) {
+    return (s ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+  }
+
+  async function api(path, init = {}) {
+    if (!apiBase) throw new Error('Missing PUBLIC_API_BASE_URL');
+
+    const headers = Object.assign({}, init.headers || {});
+    const t = token();
+    if (t) headers['Authorization'] = `Bearer ${t}`;
+
+    const res = await fetch(`${apiBase}${path}`, Object.assign({}, init, { headers }));
+    return res;
+  }
+
+  async function loadComments(slug) {
+    setStatus($adminStatus, 'Loading...');
+    $list.innerHTML = '';
+
+    const res = await api(`/api/admin/comments?slug=${encodeURIComponent(slug)}&include_hidden=true`);
+    if (!res.ok) {
+      let msg = `Failed (${res.status})`;
+      try {
+        const err = await res.json();
+        msg = err?.error ? String(err.error) : msg;
+      } catch {}
+      setStatus($adminStatus, msg);
+      return;
+    }
+
+    const items = await res.json();
+    setStatus($adminStatus, `Loaded ${items.length} comment(s).`);
+
+    if (!items.length) {
+      $list.innerHTML = '<p class="empty">No comments.</p>';
+      return;
+    }
+
+    $list.innerHTML = items
+      .map(
+        (c) => `
+        <article class="c" data-id="${esc(c.id)}">
+          <header>
+            <div>
+              <p class="who">${esc(c.display_name)} <span class="email">(${esc(c.email)})</span></p>
+              <p class="meta">${esc(c.post_slug)} · ${esc(String(c.created_at))}</p>
+            </div>
+            <div class="btns">
+              <button data-action="${c.is_hidden ? 'unhide' : 'hide'}" type="button">
+                ${c.is_hidden ? 'Unhide' : 'Hide'}
+              </button>
+              <button data-action="delete" type="button" class="danger">Delete</button>
+            </div>
+          </header>
+          <pre class="body">${esc(c.content)}</pre>
+        </article>`
+      )
+      .join('');
+  }
+
+  $loginForm?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    setStatus($loginStatus, '');
+
+    const fd = new FormData($loginForm);
+    const payload = {
+      username: String(fd.get('username') ?? ''),
+      password: String(fd.get('password') ?? ''),
+    };
+
+    try {
+      const res = await fetch(`${apiBase}/api/admin/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        setStatus($loginStatus, `Login failed (${res.status}).`);
+        return;
+      }
+
+      const data = await res.json();
+      localStorage.setItem(TOKEN_KEY, String(data.token || ''));
+      setStatus($loginStatus, 'Logged in.');
+    } catch (err) {
+      setStatus($loginStatus, 'Login failed.');
+    }
+  });
+
+  $logout?.addEventListener('click', () => {
+    localStorage.removeItem(TOKEN_KEY);
+    setStatus($adminStatus, 'Logged out.');
+    $list.innerHTML = '';
+  });
+
+  $slugForm?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fd = new FormData($slugForm);
+    const slug = String(fd.get('slug') ?? '').trim();
+    if (!slug) return;
+
+    await loadComments(slug);
+  });
+
+  $list?.addEventListener('click', async (e) => {
+    const btn = e.target?.closest('button');
+    if (!btn) return;
+
+    const action = btn.getAttribute('data-action');
+    const card = btn.closest('article');
+    const id = card?.getAttribute('data-id');
+    if (!action || !id) return;
+
+    setStatus($adminStatus, 'Working...');
+
+    if (action === 'hide' || action === 'unhide') {
+      const res = await api(`/api/admin/comments/${encodeURIComponent(id)}/${action}`, { method: 'POST' });
+      if (!res.ok) {
+        setStatus($adminStatus, `Failed (${res.status})`);
+        return;
+      }
+      // refresh the current view by re-submitting the slug form
+      $slugForm.requestSubmit();
+      return;
+    }
+
+    if (action === 'delete') {
+      if (!confirm('Delete this comment permanently?')) return;
+      const res = await api(`/api/admin/comments/${encodeURIComponent(id)}`, { method: 'DELETE' });
+      if (!res.ok) {
+        setStatus($adminStatus, `Failed (${res.status})`);
+        return;
+      }
+      $slugForm.requestSubmit();
+    }
+  });
+</script>
+
+<style>
+  .admin { padding: 3.5rem 1.25rem 4.5rem; max-width: var(--content); margin: 0 auto; display: grid; gap: 1.5rem; }
+  .head { margin-bottom: 0.5rem; }
+  .home { display: inline-block; color: var(--muted); text-decoration: none; font-size: 0.95rem; }
+  .home:hover { text-decoration: underline; text-underline-offset: 3px; }
+  h1 { margin: 0.75rem 0 0.4rem; font-size: 2rem; }
+  .hint { margin: 0; color: var(--muted); }
+  .card { border: 1px solid var(--border); background: var(--paper-2); border-radius: 16px; padding: 1rem 1rem 1.1rem; }
+  h2 { margin: 0 0 0.8rem; font-size: 1.15rem; }
+  .form { display: grid; gap: 0.9rem; }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.9rem; }
+  label { display: grid; gap: 0.35rem; }
+  span { font-size: 0.9rem; color: var(--muted); }
+  input { font: inherit; padding: 0.65rem 0.75rem; border: 1px solid var(--border); border-radius: 10px; background: var(--paper); color: var(--ink); }
+  .actions { display: flex; gap: 0.75rem; align-items: baseline; flex-wrap: wrap; }
+  button { font: inherit; padding: 0.62rem 0.9rem; border-radius: 999px; border: 1px solid var(--border); background: var(--ink); color: var(--paper); cursor: pointer; }
+  #logout { background: transparent; color: var(--ink); }
+  #logout:hover { background: var(--paper); }
+  .status { margin: 0; color: var(--muted); }
+  .list { margin-top: 1rem; display: grid; gap: 0.9rem; }
+  .empty { margin: 0; color: var(--muted); }
+  .c { border: 1px solid var(--border); background: var(--paper); border-radius: 14px; padding: 0.8rem; }
+  .c header { display: flex; justify-content: space-between; gap: 1rem; align-items: flex-start; }
+  .who { margin: 0; font-weight: 650; }
+  .email { color: var(--muted); font-weight: 450; }
+  .meta { margin: 0.25rem 0 0; color: var(--muted); font-size: 0.88rem; }
+  .btns { display: flex; gap: 0.5rem; align-items: flex-start; }
+  .btns button { background: transparent; color: var(--ink); }
+  .btns button:hover { background: var(--paper-2); }
+  .btns .danger { border-color: #c43b3b33; color: #8e2222; }
+  .body { margin: 0.75rem 0 0; white-space: pre-wrap; font: inherit; color: var(--ink); }
+  @media (max-width: 720px) {
+    .row { grid-template-columns: 1fr; }
+    .c header { flex-direction: column; }
+  }
+</style>

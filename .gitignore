@@ -1,0 +1,20 @@
+# Rust
+**/target/
+**/*.rs.bk
+
+# Node / Astro
+node_modules/
+dist/
+.astro/
+
+# Environment
+.env
+.env.*
+
+# OS / editor
+.DS_Store
+.vscode/
+
+# Fly / Wrangler
+.fly/
+.wrangler/

@@ -1,0 +1,158 @@
+---
+export interface Props {
+  slug: string;
+}
+
+const { slug } = Astro.props;
+const apiBase = import.meta.env.PUBLIC_API_BASE_URL;
+---
+
+<section class="comments" data-slug={slug}>
+  <h2>Comments</h2>
+  <p class="hint">Be kind. Your email is stored privately and never shown.</p>
+
+  <form id="comment-form" class="form" autocomplete="on">
+    <div class="row">
+      <label>
+        <span>Name</span>
+        <input name="display_name" required maxlength="64" />
+      </label>
+      <label>
+        <span>Email</span>
+        <input name="email" type="email" required maxlength="254" />
+      </label>
+    </div>
+
+    <label>
+      <span>Comment</span>
+      <textarea name="content" required maxlength="5000" rows="6"></textarea>
+    </label>
+
+    <label class="hp" aria-hidden="true">
+      <span>Company</span>
+      <input name="hp" tabindex="-1" autocomplete="off" />
+    </label>
+
+    <div class="actions">
+      <button type="submit">Post comment</button>
+      <p id="comment-status" class="status" role="status"></p>
+    </div>
+  </form>
+
+  <div id="comment-list" class="list" aria-live="polite"></div>
+</section>
+
+<script define:vars={{ slug, apiBase }}>
+  const $list = document.getElementById('comment-list');
+  const $form = document.getElementById('comment-form');
+  const $status = document.getElementById('comment-status');
+
+  function esc(s) {
+    return (s ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+  }
+
+  function fmtDate(iso) {
+    try {
+      return new Date(iso).toLocaleString('en-AU', { year: 'numeric', month: 'short', day: '2-digit' });
+    } catch {
+      return '';
+    }
+  }
+
+  async function load() {
+    if (!apiBase) {
+      $list.innerHTML = '<p class="empty">Missing PUBLIC_API_BASE_URL</p>';
+      return;
+    }
+
+    const url = `${apiBase}/api/comments?slug=${encodeURIComponent(slug)}`;
+    const res = await fetch(url, { method: 'GET' });
+    if (!res.ok) {
+      $list.innerHTML = `<p class="empty">Failed to load comments (${res.status}).</p>`;
+      return;
+    }
+
+    const items = await res.json();
+    if (!items.length) {
+      $list.innerHTML = '<p class="empty">No comments yet.</p>';
+      return;
+    }
+
+    $list.innerHTML = items
+      .map(
+        (c) => `
+        <article class="c">
+          <header>
+            <p class="who">${esc(c.display_name)}</p>
+            <time class="when" datetime="${esc(c.created_at)}">${esc(fmtDate(c.created_at))}</time>
+          </header>
+          <p class="body">${esc(c.content).replaceAll('\n', '<br/>')}</p>
+        </article>`
+      )
+      .join('');
+  }
+
+  $form?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    $status.textContent = '';
+
+    const fd = new FormData($form);
+    const payload = {
+      slug,
+      display_name: String(fd.get('display_name') ?? ''),
+      email: String(fd.get('email') ?? ''),
+      content: String(fd.get('content') ?? ''),
+      hp: String(fd.get('hp') ?? ''),
+    };
+
+    const res = await fetch(`${apiBase}/api/comments`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    if (res.status === 201) {
+      $form.reset();
+      $status.textContent = 'Posted.';
+      await load();
+      return;
+    }
+
+    try {
+      const err = await res.json();
+      $status.textContent = err?.error ? String(err.error) : `Failed (${res.status})`;
+    } catch {
+      $status.textContent = `Failed (${res.status})`;
+    }
+  });
+
+  load();
+</script>
+
+<style>
+  .comments { max-width: var(--content); margin: 3.25rem auto 0; padding-top: 2.25rem; border-top: 1px solid var(--border); }
+  h2 { margin: 0 0 0.4rem; font-size: 1.25rem; }
+  .hint { margin: 0 0 1.2rem; color: var(--muted); font-size: 0.95rem; }
+  .form { display: grid; gap: 0.9rem; }
+  label { display: grid; gap: 0.35rem; }
+  span { font-size: 0.9rem; color: var(--muted); }
+  input, textarea { font: inherit; padding: 0.65rem 0.75rem; border: 1px solid var(--border); border-radius: 10px; background: var(--paper); color: var(--ink); }
+  textarea { resize: vertical; }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.9rem; }
+  .actions { display: flex; align-items: baseline; gap: 0.9rem; }
+  button { font: inherit; padding: 0.62rem 0.9rem; border-radius: 999px; border: 1px solid var(--border); background: var(--ink); color: var(--paper); cursor: pointer; }
+  button:hover { filter: brightness(0.95); }
+  .status { margin: 0; color: var(--muted); }
+  .list { margin-top: 1.5rem; display: grid; gap: 1.1rem; }
+  .empty { color: var(--muted); margin: 0; }
+  .c { padding: 0.9rem 1rem; border: 1px solid var(--border); border-radius: 14px; background: var(--paper-2); }
+  .c header { display: flex; justify-content: space-between; gap: 1rem; align-items: baseline; }
+  .who { margin: 0; font-weight: 650; }
+  .when { color: var(--muted); font-size: 0.88rem; }
+  .body { margin: 0.6rem 0 0; color: var(--ink); }
+  .hp { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
+  @media (max-width: 720px) {
+    .row { grid-template-columns: 1fr; }
+    .c header { flex-direction: column; align-items: flex-start; }
+  }
+</style>

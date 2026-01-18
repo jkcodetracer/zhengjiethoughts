@@ -1,0 +1,55 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import { getCollection } from 'astro:content';
+import CommentSection from '../../components/CommentSection.astro';
+
+export async function getStaticPaths() {
+  const posts = await getCollection('blog', ({ data }) => !data.draft);
+  return posts.map((post) => ({ params: { slug: post.slug }, props: { post } }));
+}
+
+const { post } = Astro.props;
+const { Content } = await post.render();
+
+const published = post.data.publishedAt;
+const updated = post.data.updatedAt;
+---
+
+<Layout title={post.data.title} description={post.data.description ?? undefined}>
+	<article class="post">
+		<header class="head">
+			<a class="home" href="/">Home</a>
+			<h1>{post.data.title}</h1>
+			<p class="meta">
+				<time datetime={published.toISOString()}>
+					{published.toLocaleDateString('en-AU', { year: 'numeric', month: 'short', day: '2-digit' })}
+				</time>
+				{updated ? (
+					<span class="updated">
+						Updated{' '}
+						<time datetime={updated.toISOString()}>
+							{updated.toLocaleDateString('en-AU', { year: 'numeric', month: 'short', day: '2-digit' })}
+						</time>
+					</span>
+				) : null}
+				{post.data.tags?.length ? <span class="tags">{post.data.tags.join(' / ')}</span> : null}
+			</p>
+		</header>
+
+		<div class="prose">
+			<Content />
+		</div>
+
+		<CommentSection slug={post.slug} />
+	</article>
+</Layout>
+
+<style>
+	.post { padding: 3.75rem 1.25rem 4.5rem; }
+	.head { max-width: var(--content); margin: 0 auto 2rem; }
+	.home { display: inline-block; color: var(--muted); text-decoration: none; font-size: 0.95rem; }
+	.home:hover { text-decoration: underline; text-underline-offset: 3px; }
+	h1 { margin: 0.75rem 0 0.75rem; font-size: clamp(2rem, 4vw, 3rem); line-height: 1.08; }
+	.meta { display: flex; gap: 0.8rem; flex-wrap: wrap; color: var(--muted); font-size: 0.92rem; margin: 0; }
+	.prose { max-width: var(--content); margin: 0 auto; }
+</style>
