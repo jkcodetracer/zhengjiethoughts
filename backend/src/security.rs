@@ -93,6 +93,7 @@ impl AdminAuth {
 
 pub fn client_ip_hash(headers: &HeaderMap) -> anyhow::Result<String> {
     // Prefer Fly's header; fall back to X-Forwarded-For.
+    // Local dev requests won't have these.
     let ip = headers
         .get("Fly-Client-IP")
         .and_then(|h| h.to_str().ok())
@@ -103,7 +104,7 @@ pub fn client_ip_hash(headers: &HeaderMap) -> anyhow::Result<String> {
                 .and_then(|s| s.split(',').next())
                 .map(|s| s.trim())
         })
-        .context("no client ip header")?;
+        .unwrap_or("local");
 
     // Lightweight stable hash; enough to avoid storing raw IP.
     // Not for cryptographic uses.

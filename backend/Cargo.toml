@@ -7,16 +7,18 @@ edition = "2024"
 anyhow = "1"
 argon2 = { version = "0.5", features = ["std"] }
 axum = { version = "0.7", features = ["macros", "json"] }
+dotenvy = "0.15"
 axum-extra = { version = "0.9", features = ["typed-header"] }
 headers = "0.4"
 jsonwebtoken = "9"
+rand_core = "0.6"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "postgres", "uuid", "time", "migrate", "macros"] }
 time = { version = "0.3", features = ["serde"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal"] }
+tokio-stream = "0.1"
 tower = "0.5"
-tower_governor = "0.4"
 tower-http = { version = "0.6", features = ["cors", "trace"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }

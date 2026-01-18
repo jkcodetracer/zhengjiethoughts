@@ -9,7 +9,9 @@ dist/
 
 # Environment
 .env
+!.env.example
 .env.*
+!.env.*.example
 
 # OS / editor
 .DS_Store

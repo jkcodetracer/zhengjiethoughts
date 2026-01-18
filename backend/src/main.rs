@@ -1,4 +1,4 @@
-use std::{net::SocketAddr, sync::Arc, time::Duration};
+use std::{net::SocketAddr, time::Duration};
 
 use anyhow::Context;
 use axum::{
@@ -11,7 +11,6 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, Row, postgres::PgPoolOptions};
 use time::OffsetDateTime;
-use tower_governor::{GovernorLayer, governor::GovernorConfigBuilder};
 use tower_http::{
     cors::{AllowOrigin, Any, CorsLayer},
     trace::TraceLayer,
@@ -30,6 +29,11 @@ struct AppState {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    dotenvy::dotenv().ok();
+
+    // Note: dotenv treats `$FOO` as variable expansion. Argon2 hashes contain `$`.
+    // For local dev, prefer escaping `$` in `.env` as `\$`.
+
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -69,21 +73,9 @@ async fn main() -> anyhow::Result<()> {
 
     let cors_layer = build_cors_layer(&state.cors_allowed_origins);
 
-    let comment_governor = GovernorConfigBuilder::default()
-        .per_second(2)
-        .burst_size(5)
-        .finish()
-        .expect("valid governor config");
-
     let app = Router::new()
         .route("/healthz", get(healthz))
-        .route("/api/comments", get(list_comments))
-        .route(
-            "/api/comments",
-            post(create_comment).layer(GovernorLayer {
-                config: Arc::new(comment_governor),
-            }),
-        )
+        .route("/api/comments", get(list_comments).post(create_comment))
         .route("/api/admin/login", post(admin_login))
         .route("/api/admin/comments", get(admin_list_comments))
         .route("/api/admin/comments/:id/hide", post(admin_hide_comment))
@@ -213,9 +205,12 @@ async fn create_comment(
     validate_comment(&req)?;
 
     // We don't store raw IPs. Keeping a simple hash can help with abuse handling later.
+    // In local dev there may be no proxy headers, so this can be None.
     let ip_hash = security::client_ip_hash(&headers).ok();
 
-    sqlx::query(
+    tracing::info!("attempting insert");
+
+    let result = sqlx::query(
         r#"
         insert into comments (id, post_slug, display_name, email, content, ip_hash)
         values ($1, $2, $3, $4, $5, $6)
@@ -228,8 +223,13 @@ async fn create_comment(
     .bind(req.content.trim())
     .bind(ip_hash)
     .execute(&state.db)
-    .await
-    .context("insert comment")?;
+    .await;
+
+    if let Err(ref e) = result {
+        tracing::error!(error = ?e, "insert comment failed");
+    }
+
+    result.context("insert comment")?;
 
     Ok(StatusCode::CREATED)
 }
